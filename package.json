@@ -7,7 +7,7 @@
     "agent": "tsx src/cli.ts",
     "loop": "tsx src/loop-test.ts",
     "ping": "tsx src/ping-test.ts",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest run",
     "transform-test": "tsx src/transform-test.ts",
     "verify-test": "tsx src/verify-test.ts"
   },
@@ -18,7 +18,8 @@
   "devDependencies": {
     "@types/node": "^25.4.0",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
   },
   "dependencies": {
     "dotenv": "^17.3.1",
