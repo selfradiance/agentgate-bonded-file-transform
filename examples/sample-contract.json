@@ -1,0 +1,9 @@
+{
+  "task": "file-transform",
+  "transform_type": "csv-to-json",
+  "input_file": "examples/sample-input.csv",
+  "output_file": "examples/sample-output.json",
+  "bond_amount_cents": 100,
+  "ttl_seconds": 300,
+  "expected_output_hash": "sha256:2d02509c74761d34399f1ec03c8e4e7762db46247fc30df8d5a05197cb867304"
+}
