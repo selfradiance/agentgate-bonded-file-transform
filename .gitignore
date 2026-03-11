@@ -5,4 +5,5 @@ dist/
 agent-identity*.json
 process-template*.md
 examples/sample-output.json
+examples/bad-contract.json
 .DS_Store
