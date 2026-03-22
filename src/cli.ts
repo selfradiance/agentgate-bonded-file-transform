@@ -91,6 +91,10 @@ async function main() {
   const outcome = verified ? "success" : "failed";
   const resolveResult = await client.resolveAction(actionId, outcome, keys.publicKey, keys.privateKey);
 
+  // Check if AgentGate actually accepted the resolution
+  const serverAccepted = resolveResult.status >= 200 && resolveResult.status < 300;
+  const rb = resolveResult.body;
+
   // 7. Print summary
   console.log("\n========================================");
   console.log("  AGENT 001 — EXECUTION SUMMARY");
@@ -100,13 +104,16 @@ async function main() {
   console.log(`  Expected hash: ${contract.expected_output_hash}`);
   console.log(`  Actual hash:   ${actualHash}`);
   console.log(`  Verification:  ${verified ? "PASS" : "FAIL"}`);
-  console.log(`  Resolution:    ${outcome}`);
+  console.log(`  Resolution:    ${serverAccepted ? outcome : "REJECTED BY SERVER"}`);
+  if (!serverAccepted) {
+    console.log(`  Server error:  ${resolveResult.status} ${resolveResult.statusText}`);
+    console.log(`  Server body:   ${JSON.stringify(rb)}`);
+  }
   console.log("  ---");
   console.log(`  Identity:      ${identityId}`);
   console.log(`  Bond:          ${bondId}`);
   console.log(`  Action:        ${actionId}`);
 
-  const rb = resolveResult.body;
   if (rb.released_exposure_cents !== undefined) {
     console.log(`  Released:      ${rb.released_exposure_cents} cents`);
   }
@@ -119,7 +126,7 @@ async function main() {
 
   console.log("========================================");
 
-  if (!verified) {
+  if (!verified || !serverAccepted) {
     process.exit(1);
   }
 }

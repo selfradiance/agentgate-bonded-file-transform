@@ -16,11 +16,11 @@ function base64UrlToBase64(value: string): string {
 // Signing helpers (replicated from AgentGate signing.ts)
 // ---------------------------------------------------------------------------
 
-function buildSignedMessage(nonce: string, method: string, path: string, timestamp: string, body: unknown): Buffer {
+export function buildSignedMessage(nonce: string, method: string, path: string, timestamp: string, body: unknown): Buffer {
   return createHash("sha256").update(`${nonce}${method}${path}${timestamp}${JSON.stringify(body)}`).digest();
 }
 
-function signRequest(
+export function signRequest(
   publicKeyBase64: string,
   privateKeyBase64: string,
   nonce: string,
@@ -82,6 +82,17 @@ export function printStep(label: string, result: ApiResponse): void {
   console.log(`  response: ${JSON.stringify(result.body, null, 2)}`);
 }
 
+// Read body as text first, then attempt JSON.parse — avoids the consumed-body
+// problem where response.json() fails and response.text() returns empty.
+async function parseResponseBody(response: Response): Promise<Record<string, unknown>> {
+  const text = await response.text();
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return { error: "UNPARSEABLE_RESPONSE", message: text || "(empty)" };
+  }
+}
+
 export class AgentGateClient {
   constructor(
     private baseUrl: string,
@@ -99,12 +110,7 @@ export class AgentGateClient {
       body: JSON.stringify(body),
     });
 
-    let responseBody: Record<string, unknown>;
-    try {
-      responseBody = await response.json() as Record<string, unknown>;
-    } catch {
-      responseBody = { error: "UNPARSEABLE_RESPONSE", message: await response.text().catch(() => "(empty)") };
-    }
+    const responseBody = await parseResponseBody(response);
     return { status: response.status, statusText: response.statusText, body: responseBody };
   }
 
@@ -130,12 +136,7 @@ export class AgentGateClient {
       body: JSON.stringify(body),
     });
 
-    let responseBody: Record<string, unknown>;
-    try {
-      responseBody = await response.json() as Record<string, unknown>;
-    } catch {
-      responseBody = { error: "UNPARSEABLE_RESPONSE", message: await response.text().catch(() => "(empty)") };
-    }
+    const responseBody = await parseResponseBody(response);
     return { status: response.status, statusText: response.statusText, body: responseBody };
   }
 

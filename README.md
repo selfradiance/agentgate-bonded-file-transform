@@ -36,7 +36,7 @@ All state-changing requests are signed using Ed25519 signatures over `sha256(non
 | `output_file` | Path where the JSON output will be written (non-empty, path-traversal protected) |
 | `bond_amount_cents` | Bond collateral in cents (positive integer) |
 | `ttl_seconds` | Bond time-to-live in seconds (positive integer) |
-| `expected_output_hash` | SHA-256 hash of the expected output (`sha256:` prefix required) |
+| `expected_output_hash` | SHA-256 hash of the expected output (`sha256:` prefix + exactly 64 lowercase hex chars) |
 
 ## Quick Start
 
@@ -61,10 +61,11 @@ npm test
 
 ## Tests
 
-36 tests across 2 test files:
+60 tests across 3 test files:
 
-- **test/agent.test.ts** — core transform + verify tests, path traversal checks, contract validation
-- **test/edge-cases.test.ts** — adversarial inputs: empty files, malformed CSV, CRLF line endings, unicode, wide CSVs, garbage contracts, path traversal attacks, hash edge cases
+- **test/agent.test.ts** — core transform + verify tests, path traversal checks, contract validation (14 tests)
+- **test/edge-cases.test.ts** — adversarial inputs: empty files, malformed CSV, CRLF line endings, unicode, wide CSVs, garbage contracts, path traversal attacks, hash edge cases (27 tests)
+- **test/client.test.ts** — signing logic, signed header generation, HTTP error handling, resolve outcome reporting (19 tests)
 
 ```bash
 npm test
@@ -74,13 +75,15 @@ npm test
 
 - **Ed25519 signed requests** — all state-changing API calls include nonce, method, path, timestamp, and body in the signed message
 - **Proof-of-possession** — identity registration proves the caller owns the private key
-- **Path traversal protection** — file operations block system directories (`/etc`, `/usr`, `/bin`, `/sbin`, `/root`, `/sys`, `/proc`)
-- **Contract validation** — Zod schema enforces types, required fields, positive integers, non-empty strings, and `sha256:` hash prefix
-- **Graceful error handling** — non-JSON API responses are caught and reported cleanly instead of crashing
+- **Path traversal protection** — file operations are restricted to a configurable allowed directory (defaults to `cwd()`); symlinks are detected and rejected; paths outside the allowed directory are blocked
+- **Contract validation** — Zod schema enforces types, required fields, positive integers, non-empty strings, and strict `sha256:` hash format (exactly 64 lowercase hex characters)
+- **CSV quoted-field rejection** — CSV input containing quoted fields is rejected with a clear error instead of silently producing wrong output
+- **Resolve verification** — CLI checks the actual AgentGate API response to confirm resolution was accepted, not just local hash verification
+- **Graceful error handling** — response bodies are read as text first, then parsed as JSON, preventing consumed-body errors from hiding server error messages
 
 ## CSV Parser Limitations
 
-The CSV parser uses simple comma-splitting. It does **not** handle quoted fields, embedded commas, or newlines inside quotes. This is sufficient for the demo contract's simple CSV format. A production agent would use a proper CSV parsing library.
+The CSV parser uses simple comma-splitting. It does **not** handle quoted fields, embedded commas, or newlines inside quotes. As of v0.1.1, CSV input containing quoted fields is detected and rejected with a clear error rather than silently producing wrong output. A production agent would use a proper CSV parsing library.
 
 ## Project Structure
 
@@ -97,8 +100,9 @@ scripts/
   transform-test.ts    — manual transform test
   verify-test.ts       — manual hash verification test
 test/
-  agent.test.ts        — core tests (11)
-  edge-cases.test.ts   — adversarial tests (25)
+  agent.test.ts        — core tests (14)
+  edge-cases.test.ts   — adversarial tests (27)
+  client.test.ts       — client + signing tests (19)
 examples/
   sample-input.csv     — demo input
   sample-contract.json — demo task contract

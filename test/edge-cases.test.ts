@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { csvToJson } from "../src/transform";
+import { csvToJson, setAllowedDirectory } from "../src/transform";
 import { computeHash, verifyOutput } from "../src/verify";
 import { TaskContractSchema } from "../src/contract";
 
@@ -11,6 +11,7 @@ describe("CSV edge cases", () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-edge-"));
+    setAllowedDirectory(tmpDir);
   });
 
   afterEach(() => {
@@ -57,15 +58,11 @@ describe("CSV edge cases", () => {
     expect(result).toEqual([{ name: "Alice", age: "30" }]);
   });
 
-  it("commas inside values (no quoting — parser limitation)", () => {
+  it("rejects CSV with quoted fields instead of silently corrupting", () => {
     const input = path.join(tmpDir, "embedded-comma.csv");
     const output = path.join(tmpDir, "out.json");
     fs.writeFileSync(input, 'name,note\nAlice,"has a comma, here"', "utf8");
-    csvToJson(input, output);
-    const result = JSON.parse(fs.readFileSync(output, "utf8"));
-    // Naive parser splits on commas — this produces wrong output (known limitation)
-    expect(result[0].name).toBe("Alice");
-    expect(result[0].note).not.toBe("has a comma, here"); // Confirms it breaks
+    expect(() => csvToJson(input, output)).toThrow("quoted fields");
   });
 
   it("Windows line endings (CRLF)", () => {
@@ -118,6 +115,7 @@ describe("verify edge cases", () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-verify-"));
+    setAllowedDirectory(tmpDir);
   });
 
   afterEach(() => {
@@ -132,7 +130,7 @@ describe("verify edge cases", () => {
   });
 
   it("verifyOutput on nonexistent file throws", () => {
-    expect(() => verifyOutput("/nonexistent/file.json", "sha256:abc")).toThrow();
+    expect(() => verifyOutput("/nonexistent/file.json", "sha256:0000000000000000000000000000000000000000000000000000000000000000")).toThrow();
   });
 
   it("hash is deterministic", () => {
@@ -149,6 +147,7 @@ describe("path traversal attacks", () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-path-"));
+    setAllowedDirectory(tmpDir);
   });
 
   afterEach(() => {
@@ -171,6 +170,18 @@ describe("path traversal attacks", () => {
     fs.writeFileSync(input, "a,b\n1,2", "utf8");
     expect(() => csvToJson(input, "/usr/bin/evil")).toThrow("Path blocked");
   });
+
+  it("blocks dot-dot traversal escaping allowed directory", () => {
+    const input = path.join(tmpDir, "input.csv");
+    fs.writeFileSync(input, "a,b\n1,2", "utf8");
+    const escapedOutput = path.join(tmpDir, "..", "escaped.json");
+    expect(() => csvToJson(input, escapedOutput)).toThrow("Path blocked");
+  });
+
+  it("blocks user home directory files", () => {
+    const output = path.join(tmpDir, "out.json");
+    expect(() => csvToJson(path.join(os.homedir(), ".ssh/id_rsa"), output)).toThrow("Path blocked");
+  });
 });
 
 describe("contract validation edge cases", () => {
@@ -181,7 +192,7 @@ describe("contract validation edge cases", () => {
     output_file: "out.json",
     bond_amount_cents: 100,
     ttl_seconds: 300,
-    expected_output_hash: "sha256:abc123",
+    expected_output_hash: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   };
 
   it("rejects garbage JSON shape", () => {

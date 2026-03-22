@@ -1,6 +1,6 @@
 {
   "name": "agent-001-file-transform",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A bonded file-transform agent governed by AgentGate's bond-and-slash model",
   "scripts": {
     "agent": "tsx src/cli.ts",
