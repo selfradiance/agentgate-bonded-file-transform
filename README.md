@@ -1,20 +1,45 @@
 # Agent 001: Bonded File Transform
 
-A bonded file-transform agent. It accepts a task contract (JSON), executes a file transformation, verifies the result deterministically, and resolves through [AgentGate](https://github.com/selfradiance/agentgate). If the output is correct, the bond is released. If not, the bond is slashed. The agent has skin in the game.
+A bonded file-transform agent governed by AgentGate's bond-and-slash model. The agent accepts a task contract (JSON), executes a CSV-to-JSON transformation, verifies the result against a SHA-256 hash, and resolves through AgentGate. Pass = bond released. Fail = bond slashed.
 
-## How It Works
+## Why This Exists
 
-1. Read and validate the task contract (Zod schema with strict field validation)
-2. Create an Ed25519 identity with AgentGate (signed with proof-of-possession)
-3. Lock a bond (agent puts up collateral)
-4. Register a bonded action (signed with nonce, method, path, timestamp, body)
-5. Run the transform (CSV to JSON)
-6. Verify the output against the expected SHA-256 hash
-7. Resolve the action as `success` or `failed` — bond released or slashed accordingly
+AI agents today can fail silently, hallucinate outputs, or produce garbage — and nothing happens. There's no cost to doing a bad job. Agent 001 proves a different model: the agent posts collateral before it acts, the result is verified deterministically, and the bond is settled based on the outcome.
 
-All state-changing requests are signed using Ed25519 signatures over `sha256(nonce + method + path + timestamp + JSON.stringify(body))`, matching AgentGate's authentication protocol.
+This is the first agent in the AgentGate ecosystem. It proves the simplest verification regime: machine checks machine.
 
-## Task Contract
+## How It Relates to AgentGate
+
+[AgentGate](https://github.com/selfradiance/agentgate) is the enforcement substrate. Agent 001 calls AgentGate's API to register an identity, lock a bond, execute a bonded action, and resolve the outcome. AgentGate handles all bonding, signing, and settlement logic. Agent 001 handles the transformation and verification.
+
+AgentGate must be running for Agent 001 to work.
+
+## What's Implemented
+
+- CLI that accepts a JSON task contract specifying input file, output file, bond amount, TTL, and expected output hash
+- CSV-to-JSON transformation with allowed-directory restriction and symlink rejection
+- SHA-256 hash verification — deterministic pass/fail
+- Full AgentGate lifecycle: identity → bond → execute → resolve
+- Ed25519 signed requests matching AgentGate's format
+- Path traversal protection (allowlist-based, not blocklist)
+- Quoted-field detection in CSV (rejects instead of silently corrupting)
+- CLI verifies server-side resolution result, not just local hash
+- GitHub Actions CI
+
+## Quick Start
+
+```bash
+# 1. Start AgentGate
+cd ~/Desktop/projects/agentgate && npm run restart
+
+# 2. Run Agent 001
+cd ~/Desktop/projects/agent-001-file-transform
+cp .env.example .env  # add your AGENTGATE_REST_KEY
+npm install
+npx tsx src/cli.ts examples/sample-contract.json
+```
+
+## Example
 
 ```json
 {
@@ -28,89 +53,33 @@ All state-changing requests are signed using Ed25519 signatures over `sha256(non
 }
 ```
 
-| Field | Description |
-|---|---|
-| `task` | Must be `"file-transform"` |
-| `transform_type` | Must be `"csv-to-json"` (only supported type) |
-| `input_file` | Path to the input CSV file (non-empty, path-traversal protected) |
-| `output_file` | Path where the JSON output will be written (non-empty, path-traversal protected) |
-| `bond_amount_cents` | Bond collateral in cents (positive integer) |
-| `ttl_seconds` | Bond time-to-live in seconds (positive integer) |
-| `expected_output_hash` | SHA-256 hash of the expected output (`sha256:` prefix + exactly 64 lowercase hex chars) |
+The agent reads the contract, posts a bond on AgentGate, transforms the CSV to JSON, computes the SHA-256 hash of the output, compares it to the expected hash, and resolves the bond accordingly.
 
-## Quick Start
+## Scope / Non-Goals
 
-**Prerequisites:** Node.js 20+, [AgentGate](https://github.com/selfradiance/agentgate) running locally on port 3000.
-
-```bash
-# Clone and install
-git clone https://github.com/selfradiance/agent-001-file-transform.git
-cd agent-001-file-transform
-npm install
-
-# Configure
-cp .env.example .env
-# Edit .env and set AGENTGATE_REST_KEY
-
-# Run the agent
-npm run agent -- examples/sample-contract.json
-
-# Run tests
-npm test
-```
+- CLI only — no web server, no API
+- CSV-to-JSON only — no other transform types
+- Local files only — no uploads or downloads
+- New identity every run — no persistence across invocations
+- No automated integration tests against live AgentGate (manual verification only)
 
 ## Tests
 
-60 tests across 3 test files:
-
-- **test/agent.test.ts** — core transform + verify tests, path traversal checks, contract validation (14 tests)
-- **test/edge-cases.test.ts** — adversarial inputs: empty files, malformed CSV, CRLF line endings, unicode, wide CSVs, garbage contracts, path traversal attacks, hash edge cases (27 tests)
-- **test/client.test.ts** — signing logic, signed header generation, HTTP error handling, resolve outcome reporting (19 tests)
+60 tests across 3 files covering transformation, verification, contract validation, path traversal attacks, adversarial edge cases (empty files, malformed CSV, garbage contracts, unicode), and client signing logic.
 
 ```bash
 npm test
 ```
 
-## Security
+## Related Projects
 
-- **Ed25519 signed requests** — all state-changing API calls include nonce, method, path, timestamp, and body in the signed message
-- **Proof-of-possession** — identity registration proves the caller owns the private key
-- **Path traversal protection** — file operations are restricted to a configurable allowed directory (defaults to `cwd()`); symlinks are detected and rejected; paths outside the allowed directory are blocked
-- **Contract validation** — Zod schema enforces types, required fields, positive integers, non-empty strings, and strict `sha256:` hash format (exactly 64 lowercase hex characters)
-- **CSV quoted-field rejection** — CSV input containing quoted fields is rejected with a clear error instead of silently producing wrong output
-- **Resolve verification** — CLI checks the actual AgentGate API response to confirm resolution was accepted, not just local hash verification
-- **Graceful error handling** — response bodies are read as text first, then parsed as JSON, preventing consumed-body errors from hiding server error messages
+- [AgentGate](https://github.com/selfradiance/agentgate) — the core execution engine
+- [Agent 002: File Guardian](https://github.com/selfradiance/agentgate-bonded-file-guardian) — command-based verification
+- [Agent 003: Email Rewriter](https://github.com/selfradiance/agentgate-bonded-email-rewriter) — human judgment in the loop
 
-## CSV Parser Limitations
+## Status
 
-The CSV parser uses simple comma-splitting. It does **not** handle quoted fields, embedded commas, or newlines inside quotes. As of v0.1.1, CSV input containing quoted fields is detected and rejected with a clear error rather than silently producing wrong output. A production agent would use a proper CSV parsing library.
-
-## Project Structure
-
-```
-src/
-  cli.ts              — main entry point (contract → AgentGate lifecycle)
-  agentgate-client.ts  — HTTP client with Ed25519 signing
-  contract.ts          — Zod schema for task contracts
-  transform.ts         — CSV-to-JSON transform with path protection
-  verify.ts            — SHA-256 hash computation and verification
-scripts/
-  ping-test.ts         — connectivity test (register identity)
-  loop-test.ts         — full AgentGate lifecycle test
-  transform-test.ts    — manual transform test
-  verify-test.ts       — manual hash verification test
-test/
-  agent.test.ts        — core tests (14)
-  edge-cases.test.ts   — adversarial tests (27)
-  client.test.ts       — client + signing tests (19)
-examples/
-  sample-input.csv     — demo input
-  sample-contract.json — demo task contract
-```
-
-## Built on AgentGate
-
-This is the first agent in the single-task sandboxed agent pattern. Each agent locks a bond, performs one deterministic task, and resolves through [AgentGate](https://github.com/selfradiance/agentgate) — creating cryptographic accountability for autonomous work.
+Complete — v0.1.1 shipped. Triple-audited (Claude Code 8-round + Codex cold-eyes + adversarial edge cases). 60 tests.
 
 ## License
 
